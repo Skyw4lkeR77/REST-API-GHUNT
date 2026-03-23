@@ -32,10 +32,10 @@ class GaiaResponse(BaseModel):
     description=(
         "Retrieve OSINT information for a Google account by Gaia ID.\n\n"
         "Returns data from:\n"
-        "- **Google Account** (profile photo, cover photo, last edit, user types)\n"
+        "- **Google Account** (name, profile photo, cover photo, profile URL, user types)\n"
         "- **Google Chat** (entity type, customer ID)\n"
         "- **Google Plus** (enterprise user status, activated services)\n"
-        "- **Google Maps** (review statistics)\n\n"
+        "- **Google Maps** (stats + direct profile URL)\n\n"
         "Requires a valid GHunt session."
     ),
 )
@@ -72,12 +72,18 @@ async def hunt_gaia(request: GaiaRequest, api_key: str = Depends(verify_api_key)
         # --- Profile ---
         profile_data: Dict[str, Any] = {
             "gaia_id": target.personId,
+            "name": None,
+            "profile_url": f"https://plus.google.com/{target.personId}",
             "profile_photo": None,
             "cover_photo": None,
             "last_profile_edit": None,
             "user_types": [],
             "containers": list(containers.keys()),
         }
+
+        # Full name
+        if container in target.names:
+            profile_data["name"] = target.names[container].fullname
 
         if container in target.profilePhotos:
             photo = target.profilePhotos[container]
@@ -122,10 +128,19 @@ async def hunt_gaia(request: GaiaRequest, api_key: str = Depends(verify_api_key)
             )
 
         # --- Maps ---
-        maps_data = None
+        maps_data: Dict[str, Any] = {
+            "profile_url": f"https://www.google.com/maps/contrib/{request.gaia_id}/reviews",
+            "photos_url": f"https://www.google.com/maps/contrib/{request.gaia_id}/photos",
+            "stats": None,
+            "error": None,
+        }
         err, stats = await gmaps.get_reviews(as_client, request.gaia_id)
-        if not err and stats:
-            maps_data = serialize(stats)
+        if err == "failed":
+            maps_data["error"] = "IP blocked by Google. Try again later."
+        elif err == "empty" or not stats:
+            maps_data["error"] = "No reviews, ratings or photos found."
+        else:
+            maps_data["stats"] = stats
 
         await as_client.aclose()
         return GaiaResponse(

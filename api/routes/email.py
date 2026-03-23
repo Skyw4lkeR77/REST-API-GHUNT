@@ -1,8 +1,9 @@
+from collections import Counter
 from typing import Any, Dict, Optional
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel
 
 from api.helpers.auth import verify_api_key
 from api.helpers.serializer import serialize
@@ -32,12 +33,12 @@ class EmailResponse(BaseModel):
     description=(
         "Retrieve OSINT information for a Google account by email address.\n\n"
         "Returns data from:\n"
-        "- **Google Account** (profile photo, cover photo, Gaia ID, user types)\n"
+        "- **Google Account** (name, profile photo, cover photo, Gaia ID, profile URL, user types)\n"
         "- **Google Chat** (entity type, customer ID)\n"
         "- **Google Plus** (enterprise user status, activated services)\n"
-        "- **Play Games** (username, player ID, avatar, game stats)\n"
-        "- **Google Maps** (review/photo statistics)\n"
-        "- **Google Calendar** (public calendar events)\n\n"
+        "- **Play Games** (username, avatar, games list, achievements)\n"
+        "- **Google Maps** (stats + direct profile URL)\n"
+        "- **Google Calendar** (public calendar + events)\n\n"
         "Requires a valid GHunt session."
     ),
 )
@@ -75,12 +76,18 @@ async def hunt_email(request: EmailRequest, api_key: str = Depends(verify_api_ke
         profile_data: Dict[str, Any] = {
             "gaia_id": target.personId,
             "email": request.email,
+            "name": None,
+            "profile_url": f"https://plus.google.com/{target.personId}",
             "profile_photo": None,
             "cover_photo": None,
             "last_profile_edit": None,
             "user_types": [],
             "containers": list(containers.keys()),
         }
+
+        # Full name
+        if container in target.names:
+            profile_data["name"] = target.names[container].fullname
 
         if container in target.profilePhotos:
             photo = target.profilePhotos[container]
@@ -132,27 +139,93 @@ async def hunt_email(request: EmailRequest, api_key: str = Depends(verify_api_ke
         if player_results:
             candidate = player_results[0]
             _, player = await playgames.get_player(ghunt_creds, as_client, candidate.id)
-            games_data = serialize(player)
-            games_data["username"] = candidate.name
-            games_data["player_id"] = candidate.id
-            games_data["avatar_url"] = candidate.avatar_url
+            profile_visible = bool(
+                player.profile and player.profile.profile_settings.profile_visible
+            )
+            games_data = {
+                "username": candidate.name,
+                "player_id": candidate.id,
+                "avatar_url": candidate.avatar_url,
+                "profile_visible": profile_visible,
+                "played_games_count": len(player.played_games) if player.played_games else 0,
+                "achievements_count": len(player.achievements) if player.achievements else 0,
+                "last_played_game": None,
+                "top_achievement_game": None,
+                "played_games": [],
+                "achievements": [],
+            }
+            if profile_visible and player.played_games:
+                if player.profile.last_played_app:
+                    games_data["last_played_game"] = {
+                        "name": player.profile.last_played_app.app_name,
+                        "timestamp": str(player.profile.last_played_app.timestamp_millis),
+                    }
+                games_data["played_games"] = [
+                    {"id": g.game_data.id, "name": g.game_data.name}
+                    for g in player.played_games[:10]
+                ]
+                if player.achievements:
+                    games_data["achievements"] = [
+                        {
+                            "name": a.name,
+                            "description": a.description,
+                            "app_id": a.app_id,
+                            "unlocked": a.unlocked,
+                        }
+                        for a in player.achievements[:10]
+                    ]
+                    app_count = Counter(a.app_id for a in player.achievements)
+                    top_app_id = app_count.most_common(1)[0][0]
+                    top_game = next(
+                        (g for g in player.played_games if g.game_data.id == top_app_id), None
+                    )
+                    if top_game:
+                        games_data["top_achievement_game"] = {
+                            "name": top_game.game_data.name,
+                            "achievement_count": app_count[top_app_id],
+                        }
 
         # --- Maps ---
-        maps_data = None
+        maps_data: Dict[str, Any] = {
+            "profile_url": f"https://www.google.com/maps/contrib/{target.personId}/reviews",
+            "photos_url": f"https://www.google.com/maps/contrib/{target.personId}/photos",
+            "stats": None,
+            "error": None,
+        }
         err, stats = await gmaps.get_reviews(as_client, target.personId)
-        if not err and stats:
-            maps_data = serialize(stats)
+        if err == "failed":
+            maps_data["error"] = "IP blocked by Google. Try again later."
+        elif err == "empty" or not stats:
+            maps_data["error"] = "No reviews, ratings or photos found."
+        else:
+            maps_data["stats"] = stats
 
         # --- Calendar ---
-        calendar_data = None
+        calendar_data: Dict[str, Any] = {"found": False, "events": []}
         cal_found, calendar, calendar_events = await gcalendar.fetch_all(
             ghunt_creds, as_client, request.email
         )
         if cal_found:
             calendar_data = {
-                "details": serialize(calendar),
-                "events": serialize(calendar_events),
+                "found": True,
+                "summary": getattr(calendar, "summary", None),
+                "description": getattr(calendar, "description", None),
+                "timezone": getattr(calendar, "timeZone", None),
+                "events": [],
             }
+            if calendar_events.items:
+                for event in calendar_events.items[:20]:
+                    calendar_data["events"].append({
+                        "id": getattr(event, "id", None),
+                        "summary": getattr(event, "summary", None),
+                        "description": getattr(event, "description", None),
+                        "location": getattr(event, "location", None),
+                        "start": str(getattr(event, "start", None)),
+                        "end": str(getattr(event, "end", None)),
+                        "status": getattr(event, "status", None),
+                        "creator": serialize(getattr(event, "creator", None)),
+                        "organizer": serialize(getattr(event, "organizer", None)),
+                    })
 
         await as_client.aclose()
         return EmailResponse(
