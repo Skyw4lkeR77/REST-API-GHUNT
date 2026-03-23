@@ -1,0 +1,33 @@
+# ============================================================
+# .htaccess - GHunt REST API (DirectAdmin / Phusion Passenger)
+# ============================================================
+#
+# Place this file in your domain's document root (public_html/).
+# Adjust VENV_PATH to match your actual virtualenv location.
+# Adjust PassengerAppRoot to your actual project path.
+#
+# IMPORTANT: Replace /home/USERNAME and /home/USERNAME/ghunt_venv
+# with your actual DirectAdmin username and virtualenv path.
+# ============================================================
+
+PassengerEnabled On
+PassengerAppType wsgi
+PassengerStartupFile passenger_wsgi.py
+PassengerAppRoot /home/USERNAME/public_html
+
+# Python executable from virtualenv
+PassengerPython /home/USERNAME/ghunt_venv/bin/python3
+
+# Performance tuning
+PassengerMaxPoolSize 2
+PassengerMinInstances 1
+PassengerMaxRequests 1000
+PassengerStartTimeout 60
+
+# Disable directory listing
+Options -Indexes
+
+# Route all requests (except existing files/dirs) to Passenger
+RewriteEngine On
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteRule ^(.*)$ passenger_wsgi.py/$1 [QSA,L]

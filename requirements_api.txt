@@ -1,0 +1,20 @@
+# ============================================================
+# GHunt REST API - Additional Dependencies
+# ============================================================
+# Install alongside existing GHunt dependencies:
+#   pip install -r requirements_api.txt
+
+# FastAPI - Web framework
+fastapi>=0.111.0
+
+# Uvicorn - ASGI server (for local dev / gunicorn worker)
+uvicorn[standard]>=0.29.0
+
+# a2wsgi - ASGI-to-WSGI bridge for Phusion Passenger compatibility
+a2wsgi>=1.10.0
+
+# python-multipart - required for form data support
+python-multipart>=0.0.9
+
+# gunicorn - Production WSGI/ASGI server (alternative to uvicorn standalone)
+gunicorn>=22.0.0
