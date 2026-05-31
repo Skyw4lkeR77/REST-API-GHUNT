@@ -167,10 +167,13 @@ async def hunt_email(request: EmailRequest, api_key: str = Depends(verify_api_ke
                 if player.achievements:
                     games_data["achievements"] = [
                         {
-                            "name": a.name,
-                            "description": a.description,
+                            "id": a.id,
+                            "name": a.definition.name if a.definition else None,
+                            "description": a.definition.description if a.definition else None,
                             "app_id": a.app_id,
-                            "unlocked": a.unlocked,
+                            "unlocked": a.achievement_state == "UNLOCKED",
+                            "achievement_state": a.achievement_state,
+                            "xp": a.xp,
                         }
                         for a in player.achievements[:10]
                     ]
