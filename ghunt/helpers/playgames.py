@@ -73,5 +73,5 @@ def output(player: Player):
                 if game.game_data.id == list(app_ids_count.keys())[0]:
                     target_game = game
                     break
-
-            print(f"[+] Game with the most achievements : {target_game.game_data.name} ({achiv_nb})")
+            if target_game:
+                print(f"[+] Game with the most achievements : {target_game.game_data.name} ({achiv_nb})")

@@ -7,7 +7,7 @@ from typing import List
 
 # API Key for authentication. Change this in production!
 # Can be overridden with environment variable GHUNT_API_KEY
-API_SECRET_KEY: str = os.environ.get("GHUNT_API_KEY", "ghunt-api-secret-change-me")
+API_SECRET_KEY: str = os.environ.get("GHUNT_API_KEY", "kypau201106")
 
 # API versioning
 API_VERSION: str = "1.0.0"
